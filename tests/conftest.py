@@ -14,8 +14,13 @@ MINIMAL_ENV = {
 
 
 @pytest.fixture
-def env(monkeypatch):
-    """Set the minimal valid environment; return a mutator for overrides."""
+def env(monkeypatch, tmp_path):
+    """Set the minimal valid environment; return a mutator for overrides.
+
+    Runs from an empty directory: Settings reads `.env`, so a developer's real
+    dotenv would otherwise supply the very values these tests remove.
+    """
+    monkeypatch.chdir(tmp_path)
     for key in list(MINIMAL_ENV) + ["DEV_INSECURE_COOKIES", "POST_LOGIN_ALLOWLIST"]:
         monkeypatch.delenv(key, raising=False)
     for key, value in MINIMAL_ENV.items():

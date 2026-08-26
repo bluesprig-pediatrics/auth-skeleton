@@ -32,6 +32,16 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
+    @field_validator("post_login_allowlist", mode="after")
+    @classmethod
+    def _require_relative_paths(cls, value: list[str]) -> list[str]:
+        """This list is the open-redirect guard. An absolute or
+        protocol-relative entry turns the guard into the vulnerability."""
+        for item in value:
+            if not item.startswith("/") or item.startswith("//"):
+                raise ValueError(f"post_login_allowlist entry {item!r} must be a relative path")
+        return value
+
     session_idle_ttl_seconds: int = 60 * 30
     session_absolute_ttl_seconds: int = 60 * 60 * 8
     auth_transaction_ttl_seconds: int = 60 * 5
