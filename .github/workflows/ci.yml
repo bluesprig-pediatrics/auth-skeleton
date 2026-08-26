@@ -43,7 +43,14 @@ jobs:
         run: uv run ruff check .
       - name: Typecheck
         run: uv run mypy src
+      # Rendered to a file rather than piped: GitHub Actions runs steps under
+      # `bash -e` without pipefail, so a failing alembic would hand squawk an
+      # empty stdin and the step would pass green.
+      - name: Render migrations
+        run: uv run alembic upgrade base:head --sql > migrations.sql
       - name: Lint migrations
-        run: uv run alembic upgrade base:head --sql | uv run squawk
+        run: |
+          test -s migrations.sql
+          uv run squawk migrations.sql
       - name: Test
         run: uv run pytest -q

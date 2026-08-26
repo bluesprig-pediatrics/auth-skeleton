@@ -95,3 +95,44 @@ def test_roles_round_trip_as_a_list(session: Session):
     session.expire_all()
     stored = session.exec(select(UserSession).where(UserSession.token_hash == "h")).one()
     assert stored.roles == ["Admin", "Clinician"]
+
+
+def test_consume_sweeps_other_expired_transactions(session: Session):
+    """A login the user abandons leaves a row nothing else would ever remove;
+    SPEC claims the consuming delete clears them, so it must."""
+    make_transaction(session, state="abandoned", ttl_seconds=-1)
+    make_transaction(session, state="live")
+    AuthTransaction.consume(session, "live")
+    assert session.get(AuthTransaction, "abandoned") is None
+
+
+def test_consume_does_not_sweep_unexpired_transactions(session: Session):
+    make_transaction(session, state="other")
+    make_transaction(session, state="live")
+    AuthTransaction.consume(session, "live")
+    assert session.get(AuthTransaction, "other") is not None
+
+
+def test_roles_mutation_on_a_loaded_session_is_persisted(session: Session):
+    """Without MutableList an in-place append is invisible to the unit of work
+    and silently persists nothing, which is the worst way for a roles snapshot
+    to fail."""
+    user = make_user(session)
+    session.add(
+        UserSession(
+            user_id=user.id,
+            token_hash="mut",
+            roles=["Clinician"],
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
+    )
+    session.flush()
+    session.expire_all()
+
+    loaded = session.exec(select(UserSession).where(UserSession.token_hash == "mut")).one()
+    loaded.roles.append("Admin")
+    session.flush()
+    session.expire_all()
+
+    stored = session.exec(select(UserSession).where(UserSession.token_hash == "mut")).one()
+    assert stored.roles == ["Clinician", "Admin"]
