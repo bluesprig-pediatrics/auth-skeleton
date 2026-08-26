@@ -1,0 +1,4 @@
+# SQLModel's AutoString renders as bare `VARCHAR`, which in Postgres is stored
+# and performs identically to `TEXT`. The rule targets resizing `varchar(n)`,
+# and there is no n to resize.
+excluded_rules = ["prefer-text-field"]
