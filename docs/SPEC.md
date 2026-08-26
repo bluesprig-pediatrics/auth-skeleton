@@ -30,7 +30,7 @@ src/app/
   main.py            # app factory
   config.py          # pydantic-settings; tenant id, client id/secret, cookie flags
   db.py              # engine + session (sync)
-  models.py          # User, Session, AuthTransaction
+  models.py          # User, UserSession, AuthTransaction
   auth/
     entra.py         # code exchange + ID token validation (JWKS via PyJWKClient)
     session.py       # create / lookup / rotate / revoke
@@ -48,7 +48,7 @@ alembic/
    it (single-use); exchange `code` + verifier + client secret at `/token`.
 3. Validate ID token — JWKS signature (kid lookup), `iss` exact match on `https://login.microsoftonline.com/{tid}/v2.0`, `aud == client_id`, `exp`/`nbf`, `nonce` match.
 4. Upsert `User` keyed on `(tid, oid)`. Email/display name stored as non-authoritative cache.
-5. Create `Session`: 256-bit random id, **SHA-256 hashed at rest**, idle + absolute timeouts, roles snapshot from `roles` claim. Set `__Host-session` cookie: HttpOnly, Secure, SameSite=Lax.
+5. Create `UserSession`: 256-bit random id, **SHA-256 hashed at rest**, idle + absolute timeouts, roles snapshot from `roles` claim. Set `__Host-session` cookie: HttpOnly, Secure, SameSite=Lax.
 6. `current_user` dependency resolves cookie -> session -> user; `require_roles` checks the snapshot.
 7. `POST /auth/logout` — delete session row, clear cookie, optional front-channel redirect to Entra logout.
 
@@ -103,9 +103,16 @@ serializable — which is the risk, not the feature.
 
 - **No `table=True` model is ever returned from a route.** Every endpoint
   declares an explicit `response_model` built from a non-table schema class.
-- `Session` in particular holds the hashed session id and roles snapshot;
+- `UserSession` in particular holds the hashed session id and roles snapshot;
   serializing it is a security bug, not a style issue.
 - Table classes live in `models.py`; API schemas live beside their routes.
+
+## Why `UserSession`, not `Session`
+
+`Session` is sqlmodel's database session. Every module that touches both would
+need an alias, and the one that forgets picks up a confusing error. Tables are
+`app_user`, `user_session`, and `auth_transaction` — `user` is reserved in
+Postgres and would need quoting in every hand-written query.
 
 ## The `AuthTransaction` table
 
