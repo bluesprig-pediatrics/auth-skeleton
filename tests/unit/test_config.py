@@ -40,3 +40,15 @@ def test_post_login_allowlist_defaults_to_root(env):
 def test_post_login_allowlist_accepts_comma_separated(env):
     env.setenv("POST_LOGIN_ALLOWLIST", "/home, /dashboard")
     assert Settings().post_login_allowlist == ["/home", "/dashboard"]
+
+
+def test_post_login_allowlist_rejects_absolute_urls(env):
+    env.setenv("POST_LOGIN_ALLOWLIST", "https://evil.example/")
+    with pytest.raises(ValidationError, match="must be a relative path"):
+        Settings()
+
+
+def test_post_login_allowlist_rejects_protocol_relative(env):
+    env.setenv("POST_LOGIN_ALLOWLIST", "//evil.example")
+    with pytest.raises(ValidationError, match="must be a relative path"):
+        Settings()
