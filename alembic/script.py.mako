@@ -31,4 +31,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # DROP TABLE and DROP INDEX both take ACCESS EXCLUSIVE. A rollback against
+    # a live database blocks every reader, which is what these bound.
+    op.execute("SET statement_timeout = '5s'")
+    op.execute("SET lock_timeout = '3s'")
     ${downgrades if downgrades else "pass"}

@@ -1,19 +1,19 @@
 """create user, session, and auth transaction tables
 
-Revision ID: aa9af624bfca
+Revision ID: 072ed7f067d7
 Revises: 
-Create Date: 2026-08-26 18:37:46.065191
+Create Date: 2026-08-26 18:52:13.128759
 
 """
 from collections.abc import Sequence
 
+from alembic import op
 import sqlalchemy as sa
 import sqlmodel.sql.sqltypes
-from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'aa9af624bfca'
+revision: str = '072ed7f067d7'
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -21,6 +21,9 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Upgrade schema."""
+    # Fail fast rather than hold a lock: an unbounded ALTER on a large table
+    # blocks every reader behind it. Raise it deliberately if a migration
+    # genuinely needs longer.
     op.execute("SET statement_timeout = '5s'")
     op.execute("SET lock_timeout = '3s'")
     op.create_table('app_user',
@@ -41,6 +44,7 @@ def upgrade() -> None:
     sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
     sa.PrimaryKeyConstraint('state')
     )
+    op.create_index(op.f('ix_auth_transaction_expires_at'), 'auth_transaction', ['expires_at'], unique=False)
     op.create_table('user_session',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('user_id', sa.Uuid(), nullable=False),
@@ -58,8 +62,13 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    # DROP TABLE and DROP INDEX both take ACCESS EXCLUSIVE. A rollback against
+    # a live database blocks every reader, which is what these bound.
+    op.execute("SET statement_timeout = '5s'")
+    op.execute("SET lock_timeout = '3s'")
     op.drop_index(op.f('ix_user_session_user_id'), table_name='user_session')
     op.drop_index(op.f('ix_user_session_token_hash'), table_name='user_session')
     op.drop_table('user_session')
+    op.drop_index(op.f('ix_auth_transaction_expires_at'), table_name='auth_transaction')
     op.drop_table('auth_transaction')
     op.drop_table('app_user')

@@ -4,19 +4,20 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Column, DateTime, UniqueConstraint
+from sqlalchemy import Column, DateTime, UniqueConstraint, delete, or_
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlmodel import Field, Session, SQLModel
+from sqlalchemy.ext.mutable import MutableList
+from sqlmodel import Field, Session, SQLModel, col
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def _timestamp_column() -> Column:  # type: ignore[type-arg]
+def _timestamp_column(*, index: bool = False) -> Column:  # type: ignore[type-arg]
     """Timezone-aware timestamps. Naive columns silently compare wrong the
     first time a deployment is not on UTC."""
-    return Column(DateTime(timezone=True), nullable=False)
+    return Column(DateTime(timezone=True), nullable=False, index=index)
 
 
 class User(SQLModel, table=True):
@@ -55,7 +56,14 @@ class UserSession(SQLModel, table=True):
 
     # Snapshot of the Entra `roles` claim at login. Authorization must not
     # depend on a live directory lookup on every request.
-    roles: list[str] = Field(default_factory=list, sa_column=Column(JSONB, nullable=False))
+    # MutableList: without it an in-place `roles.append(...)` is invisible to
+    # the unit of work and silently persists nothing. Tracking begins when the
+    # attribute is loaded by SQLAlchemy; on an instance just constructed in
+    # Python, pydantic holds a plain list, so assign a whole list there.
+    roles: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(MutableList.as_mutable(JSONB), nullable=False),
+    )
 
     created_at: datetime = Field(default_factory=_utcnow, sa_column=_timestamp_column())
     # Idle timeout is measured from here; absolute timeout from expires_at.
@@ -72,7 +80,8 @@ class AuthTransaction(SQLModel, table=True):
     nonce: str
     code_verifier: str
     next_path: str = "/"
-    expires_at: datetime = Field(sa_column=_timestamp_column())
+    # Indexed: consume() sweeps expired rows on every callback.
+    expires_at: datetime = Field(sa_column=_timestamp_column(index=True))
 
     @classmethod
     def consume(cls, session: Session, state: str) -> AuthTransaction | None:
@@ -81,10 +90,18 @@ class AuthTransaction(SQLModel, table=True):
         Deletion is unconditional: a transaction is single-use whether or not
         the callback succeeds, so a replayed `state` finds nothing.
         """
-        transaction = session.get(cls, state)
-        if transaction is None:
-            return None
-        expired = transaction.expires_at <= _utcnow()
-        session.delete(transaction)
-        session.flush()
-        return None if expired else transaction
+        now = _utcnow()
+        # One statement, so two concurrent callbacks cannot both be handed the
+        # same nonce and verifier. The `or` clause also sweeps abandoned rows:
+        # a login the user never returns from would otherwise live forever.
+        statement = (
+            delete(cls)
+            .where(or_(col(cls.state) == state, col(cls.expires_at) <= now))
+            .returning(cls)
+        )
+        deleted = session.execute(statement).all()
+        for row in deleted:
+            transaction = row[0]
+            if transaction.state == state:
+                return None if transaction.expires_at <= now else transaction
+        return None
