@@ -224,7 +224,7 @@ def test_unknown_kid_does_not_refetch_without_bound(client, idp):
 
 def test_code_exchange_sends_pkce_verifier_and_secret(client, idp):
     idp.token_response = {"id_token": "x", "access_token": "y"}
-    client.exchange_code("the-code", "the-verifier", redirect_uri="https://app/cb")
+    client.exchange_code("the-code", "the-verifier")
     sent = idp.last_token_request
     assert sent["code"] == "the-code"
     assert sent["code_verifier"] == "the-verifier"
@@ -234,17 +234,64 @@ def test_code_exchange_sends_pkce_verifier_and_secret(client, idp):
 
 def test_code_exchange_returns_the_id_token(client, idp):
     idp.token_response = {"id_token": "the-id-token"}
-    assert client.exchange_code("c", "v", redirect_uri="https://app/cb") == "the-id-token"
+    assert client.exchange_code("c", "v") == "the-id-token"
 
 
 def test_code_exchange_raises_on_error_response(client, idp):
     idp.token_status = 400
     idp.token_response = {"error": "invalid_grant"}
     with pytest.raises(TokenExchangeError):
-        client.exchange_code("c", "v", redirect_uri="https://app/cb")
+        client.exchange_code("c", "v")
 
 
 def test_code_exchange_raises_when_id_token_is_absent(client, idp):
     idp.token_response = {"access_token": "only-this"}
     with pytest.raises(TokenExchangeError):
-        client.exchange_code("c", "v", redirect_uri="https://app/cb")
+        client.exchange_code("c", "v")
+
+
+# --- regressions from review --------------------------------------------
+
+
+def test_non_ascii_nonce_is_rejected_not_crashed(client, idp):
+    """`secrets.compare_digest` raises TypeError on non-ASCII str. The claim is
+    attacker-influenced, so that would be an uncaught 500 on an unauthenticated
+    path rather than a rejection."""
+    token = idp.sign(claims(idp, nonce="n\u00f6nce"))
+    with pytest.raises(TokenValidationError):
+        client.validate_id_token(token, expected_nonce=NONCE)
+
+
+def test_empty_expected_nonce_is_refused(client, idp):
+    """Fails closed: an empty expected nonce must not match anything."""
+    with pytest.raises(TokenValidationError):
+        client.validate_id_token(idp.sign(claims(idp)), expected_nonce="")
+
+
+def test_rejects_a_token_for_another_tenant(client, idp):
+    token = idp.sign(claims(idp, tid="99999999-9999-9999-9999-999999999999"))
+    with pytest.raises(TokenValidationError):
+        client.validate_id_token(token, expected_nonce=NONCE)
+
+
+def test_redirect_uri_comes_from_settings(client, idp):
+    """RFC 6749 requires the token request to echo the authorize request's
+    redirect_uri exactly; two sources invite a silent invalid_grant."""
+    from urllib.parse import parse_qs, unquote, urlparse
+
+    idp.token_response = {"id_token": "x"}
+    client.exchange_code("c", "v")
+    authorized = parse_qs(urlparse(client.authorization_url("s", NONCE, "ch")).query)
+    assert unquote(idp.last_token_request["redirect_uri"]) == authorized["redirect_uri"][0]
+
+
+def test_non_json_token_response_raises_exchange_error(client, idp):
+    idp.serve_html_token_response = True
+    with pytest.raises(TokenExchangeError):
+        client.exchange_code("c", "v")
+
+
+def test_refresh_throttle_starts_unset(client):
+    """A monotonic() baseline of 0.0 would skip the first refresh on a host
+    that booted less than the interval ago."""
+    assert client._last_jwks_refresh == float("-inf")
