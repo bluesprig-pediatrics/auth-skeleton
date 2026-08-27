@@ -271,3 +271,79 @@ def test_dev_insecure_cookies_drop_the_host_prefix(idp, engine, monkeypatch):
         for model in (UserSession, AuthTransaction, User):
             cleanup.execute(delete(model))
         cleanup.commit()
+
+
+def test_callback_rejects_a_state_from_another_browser(app_client, engine, idp, monkeypatch):
+    """Login CSRF. Storing state server-side only proves it was issued, not
+    that it was issued to *this* browser. Without binding, an attacker starts
+    a login, then lures a victim to the callback with the attacker's code and
+    state -- and the victim's browser gets a session for the attacker's
+    identity."""
+    state, nonce = start_login(app_client, engine)
+    idp.token_response = {"id_token": idp.sign(id_token_claims(idp, nonce))}
+
+    with TestClient(
+        create_app(), base_url="https://testserver", follow_redirects=False
+    ) as victim:
+        # This browser never called /auth/login.
+        response = victim.get(f"/auth/callback?code=attacker-code&state={state}")
+        assert response.status_code == 400
+        assert "set-cookie" not in response.headers
+
+
+def test_login_sweeps_expired_transactions(app_client, engine):
+    """Login is unauthenticated and writes a row per request; nothing else
+    reaps rows for logins that never come back."""
+    with Session(engine) as db:
+        db.add(
+            AuthTransaction(
+                state="stale",
+                nonce="n",
+                code_verifier="v",
+                expires_at=datetime.now(UTC) - timedelta(seconds=1),
+            )
+        )
+        db.commit()
+    app_client.get("/auth/login")
+    with Session(engine) as db:
+        assert db.get(AuthTransaction, "stale") is None
+
+
+def test_login_sweeps_expired_sessions(app_client, engine, idp):
+    sign_in(app_client, engine, idp)
+    with Session(engine) as db:
+        stored = db.exec(select(UserSession)).one()
+        stored.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        db.add(stored)
+        db.commit()
+    app_client.get("/auth/login")
+    with Session(engine) as db:
+        assert db.exec(select(UserSession)).all() == []
+
+
+def test_upsert_is_one_statement_not_check_then_insert(engine):
+    """A check-then-insert loses the race on a concurrent first login and 500s
+    on the last leg of a valid one. The second call here takes the ON CONFLICT
+    branch, which is the path that removes the window.
+
+    Deliberately sequential: two sessions racing the same key would block on
+    each other's uncommitted row, which tests the database, not this code.
+    """
+    from app.entra import Identity
+    from app.routes import _upsert_user
+
+    identity = Identity(tid=TENANT, oid="racy", email="a@example.com", display_name="A", roles=[])
+    with Session(engine) as db:
+        first = _upsert_user(db, identity)
+        db.commit()
+        first_id = first.id
+
+    updated = Identity(tid=TENANT, oid="racy", email="b@example.com", display_name="B", roles=[])
+    with Session(engine) as db:
+        second = _upsert_user(db, updated)
+        db.commit()
+        assert second.id == first_id
+        assert second.email == "b@example.com"
+
+    with Session(engine) as db:
+        assert len(db.exec(select(User).where(User.oid == "racy")).all()) == 1

@@ -52,3 +52,14 @@ def test_post_login_allowlist_rejects_protocol_relative(env):
     env.setenv("POST_LOGIN_ALLOWLIST", "//evil.example")
     with pytest.raises(ValidationError, match="must be a relative path"):
         Settings()
+
+
+def test_empty_post_login_allowlist_is_rejected(env):
+    """Empty passes every other check, then /auth/login raises IndexError."""
+    env.setenv("POST_LOGIN_ALLOWLIST", "")
+    with pytest.raises(ValidationError, match="must not be empty"):
+        Settings()
+
+
+def test_login_cookie_name_tracks_the_session_cookie_prefix(env):
+    assert Settings().login_cookie_name == "__Host-login"
