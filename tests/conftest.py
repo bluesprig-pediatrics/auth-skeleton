@@ -21,7 +21,8 @@ def env(monkeypatch, tmp_path):
     dotenv would otherwise supply the very values these tests remove.
     """
     monkeypatch.chdir(tmp_path)
-    for key in list(MINIMAL_ENV) + ["DEV_INSECURE_COOKIES", "POST_LOGIN_ALLOWLIST"]:
+    optional = ["DEV_INSECURE_COOKIES", "POST_LOGIN_ALLOWLIST", "ENTRA_AUTHORITY"]
+    for key in list(MINIMAL_ENV) + optional:
         monkeypatch.delenv(key, raising=False)
     for key, value in MINIMAL_ENV.items():
         monkeypatch.setenv(key, value)

@@ -24,7 +24,7 @@ JWKS_REFRESH_INTERVAL_SECONDS = 300
 
 # Without `aud` and `iss` here, a token missing the claim entirely skips the
 # corresponding check instead of failing it.
-REQUIRED_CLAIMS = ["exp", "nbf", "iss", "aud", "sub", "oid", "tid"]
+REQUIRED_CLAIMS = ["exp", "nbf", "iss", "aud", "sub", "oid", "tid", "nonce"]
 
 
 class TokenExchangeError(Exception):
@@ -72,11 +72,18 @@ def new_pkce_pair() -> tuple[str, str]:
 
 
 class EntraClient:
+    """Holds the JWKS cache and the refresh throttle.
+
+    Must live for the process, not per request: both bounds are instance
+    state, and rebuilding this per request restores the unbounded refetch it
+    exists to prevent. The app factory stores one on `app.state`.
+    """
+
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self.endpoints = endpoints_for(settings.entra_authority, settings.entra_tenant_id)
-        # PyJWT's client already does fetch, kid lookup, and a bounded cache.
-        # `lifespan` is what stops an unknown kid becoming one request per token.
+        # `lifespan` bounds how long a *known* key set is reused. It does not
+        # bound refetching on an unknown kid -- see _signing_key.
         self._jwks = PyJWKClient(
             self.endpoints.jwks,
             cache_jwk_set=True,
@@ -84,7 +91,10 @@ class EntraClient:
             max_cached_keys=16,
             timeout=10,
         )
-        self._last_jwks_refresh = 0.0
+        # -inf, not 0.0: monotonic() is uptime on Linux and macOS, so a
+        # process starting within the interval of boot would skip its first
+        # refresh and reject a genuine key rotation.
+        self._last_jwks_refresh = float("-inf")
 
     def authorization_url(self, state: str, nonce: str, code_challenge: str) -> str:
         query = urlencode(
@@ -102,7 +112,7 @@ class EntraClient:
         )
         return f"{self.endpoints.authorize}?{query}"
 
-    def exchange_code(self, code: str, code_verifier: str, *, redirect_uri: str) -> str:
+    def exchange_code(self, code: str, code_verifier: str) -> str:
         """Trade the authorization code for an ID token. Confidential client:
         the secret goes with it, and PKCE is used regardless."""
         try:
@@ -113,7 +123,10 @@ class EntraClient:
                     "client_secret": self._settings.entra_client_secret,
                     "grant_type": "authorization_code",
                     "code": code,
-                    "redirect_uri": redirect_uri,
+                    # Same source as authorization_url: RFC 6749 requires the
+                    # two to be identical, and a mismatch surfaces only as an
+                    # opaque invalid_grant.
+                    "redirect_uri": self._settings.redirect_uri,
                     "code_verifier": code_verifier,
                 },
                 timeout=10,
@@ -125,7 +138,15 @@ class EntraClient:
             # The body echoes the code; keep it out of the message.
             raise TokenExchangeError(f"token endpoint returned {response.status_code}")
 
-        id_token = response.json().get("id_token")
+        try:
+            body = response.json()
+        except ValueError as error:
+            # A captive portal or WAF answering 200 with HTML is not an HTTPError.
+            raise TokenExchangeError("token endpoint returned a non-JSON body") from error
+        if not isinstance(body, dict):
+            raise TokenExchangeError("token endpoint returned an unexpected body")
+
+        id_token = body.get("id_token")
         if not id_token:
             raise TokenExchangeError("token response carried no id_token")
         return str(id_token)
@@ -156,6 +177,11 @@ class EntraClient:
         raise TokenValidationError("id token rejected: unknown kid")
 
     def validate_id_token(self, id_token: str, *, expected_nonce: str) -> Identity:
+        if not expected_nonce:
+            # Fail closed. An empty expected nonce would otherwise match an
+            # empty claim and silently disable the replay guard.
+            raise TokenValidationError("id token rejected: no nonce to compare against")
+
         try:
             signing_key = self._signing_key(id_token)
             claims: dict[str, Any] = jwt.decode(
@@ -166,6 +192,8 @@ class EntraClient:
                 issuer=self.endpoints.issuer,
                 options={"require": REQUIRED_CLAIMS},
             )
+        except TokenValidationError:
+            raise
         except Exception as error:
             # Includes PyJWKClientError for an unknown kid. The token is not
             # logged: it is a bearer credential.
@@ -173,8 +201,15 @@ class EntraClient:
 
         # PyJWT has no notion of nonce; this is what binds the token to the
         # login we started, so a token captured elsewhere cannot be replayed.
-        if not secrets.compare_digest(str(claims.get("nonce", "")), expected_nonce):
+        # Compared as bytes: compare_digest raises TypeError on a non-ASCII
+        # str, and the claim is attacker-influenced.
+        if not secrets.compare_digest(str(claims["nonce"]).encode(), expected_nonce.encode()):
             raise TokenValidationError("id token rejected: nonce mismatch")
+
+        # Defence in depth. Exact issuer matching already pins the tenant, but
+        # Identity.tid is stored and used downstream, so verify what we keep.
+        if claims["tid"] != self._settings.entra_tenant_id:
+            raise TokenValidationError("id token rejected: unexpected tenant")
 
         return Identity(
             tid=str(claims["tid"]),

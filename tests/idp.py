@@ -29,6 +29,7 @@ class FakeIdP:
         self.jwks_fetches = 0
         self.token_response: dict[str, Any] = {}
         self.token_status = 200
+        self.serve_html_token_response = False
         self.last_token_request: dict[str, str] = {}
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         # poll_interval: shutdown() waits for the next poll, and the 0.5s default
@@ -76,6 +77,14 @@ class FakeIdP:
                 idp.last_token_request = dict(
                     part.split("=", 1) for part in body.split("&") if "=" in part
                 )
+                if idp.serve_html_token_response:
+                    body = b"<html>captive portal</html>"
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                    return
                 self._json(idp.token_status, idp.token_response)
 
             def _json(self, status: int, payload: dict[str, Any]) -> None:

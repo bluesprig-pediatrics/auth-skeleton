@@ -68,6 +68,3 @@ class Settings(BaseSettings):
     def cookie_name(self) -> str:
         return "session" if self.dev_insecure_cookies else "__Host-session"
 
-    @property
-    def entra_issuer(self) -> str:
-        return f"{self.entra_authority.rstrip('/')}/{self.entra_tenant_id}/v2.0"
