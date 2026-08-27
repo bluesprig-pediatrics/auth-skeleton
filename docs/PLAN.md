@@ -3,14 +3,12 @@
 Build order from [SPEC.md](./SPEC.md). Five PRs. TDD: failing test, minimal
 code, refactor.
 
-## Open
+## Resolved
 
-**`__Host-` cookies in dev.** The prefix requires `Secure`, i.e. HTTPS. Chrome
-and Firefox permit it on `http://localhost`; anywhere else on plain HTTP the
-browser silently drops the cookie and login appears to succeed then fails.
-Cookie name and `Secure` come from config, defaulting to `__Host-session` +
-`Secure=True`; the prefix drops only under `DEV_INSECURE_COOKIES`, which
-startup refuses when env is production.
+**`__Host-` cookies in dev.** Cookie name and `Secure` derive from
+`DEV_INSECURE_COOKIES`, which startup refuses when `ENV=production`. Both paths
+are tested, and the failure mode is real: a client on plain HTTP silently
+declines to store a `Secure` cookie, so the route tests run over https.
 
 ## PR 1 — Skeleton
 
