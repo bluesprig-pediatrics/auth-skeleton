@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     database_url: str
     port: int = 57005
 
+    # Overridable for sovereign clouds (US Gov, China) and for tests, which
+    # point it at a local issuer.
+    entra_authority: str = "https://login.microsoftonline.com"
     entra_tenant_id: str
     entra_client_id: str
     entra_client_secret: str
@@ -67,4 +70,4 @@ class Settings(BaseSettings):
 
     @property
     def entra_issuer(self) -> str:
-        return f"https://login.microsoftonline.com/{self.entra_tenant_id}/v2.0"
+        return f"{self.entra_authority.rstrip('/')}/{self.entra_tenant_id}/v2.0"

@@ -20,7 +20,8 @@ package.
 | Migration linting | `squawk-cli` in CI | Catches locking/unsafe DDL before it reaches production. Ships as a PyPI wheel, so no extra toolchain. |
 | JWT library | `PyJWT[crypto]` | `python-jose` is unmaintained with vulnerable deps; FastAPI moved to PyJWT |
 | OIDC client | `httpx` + `PyJWT` directly, **not MSAL** | MSAL's value is token caching for Graph calls; app roles mean no Graph. Reversible if Graph access is ever needed. |
-| JWKS handling | `jwt.PyJWKClient`, not hand-rolled | PyJWT ships fetch + `kid` lookup + bounded cache (`cache_jwk_set`, `lifespan=300`, `max_cached_keys=16`). No reason to own this. |
+| JWKS handling | `jwt.PyJWKClient`, with our own refresh throttle | PyJWT ships fetch, `kid` lookup, and caching. It does **not** bound refetching: measured, an unknown `kid` triggers a fetch every time, so a stream of forged tokens is a stream of outbound requests. We resolve the key against the cached set and refresh at most once per interval. |
+| Authority | `entra_authority` setting, default `login.microsoftonline.com` | Sovereign clouds (US Gov, China) use different hosts, and tests point it at a local issuer. |
 | Endpoint discovery | **Skipped.** URLs derived from tenant id | Entra's v2.0 endpoints are stable and templated on `{tid}`. Fetching the discovery document adds a network call, a cache, and failure modes to learn three known strings. |
 
 ## Layout
@@ -58,7 +59,8 @@ alembic/
 - [ ] `nonce` bound and verified (token replay)
 - [ ] PKCE used even though this is a confidential client
 - [ ] JWKS refetch bounded on unknown `kid` (no unbounded fetch = DoS vector) —
-      satisfied by `PyJWKClient(cache_jwk_set=True, lifespan=300)`; assert with a fetch counter
+      **not** given by `PyJWKClient` alone; throttled in `entra.py` and asserted
+      with a fetch counter against a real JWKS server
 - [ ] Issuer compared by exact string, never prefix match
 - [ ] Session id hashed at rest — DB leak must not equal session takeover
 - [ ] Both idle *and* absolute session timeouts
