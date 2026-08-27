@@ -12,7 +12,6 @@ class Settings(BaseSettings):
 
     env: Literal["dev", "test", "production"] = "production"
     database_url: str
-    port: int = 57005
 
     # Overridable for sovereign clouds (US Gov, China) and for tests, which
     # point it at a local issuer.
