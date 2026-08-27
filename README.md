@@ -71,6 +71,17 @@ uv run mypy src
 The integration suite runs `downgrade base`, so it refuses to point anywhere
 but a local host. It reads `TEST_DATABASE_URL`, never `DATABASE_URL`.
 
+## Container image
+
+```bash
+docker build -t my-service .
+docker compose --profile app up      # app + database together
+```
+
+Runs as a non-root user on port 57005. **Migrations are not run on boot** — a
+container that migrates as it starts races every other replica. Run
+`alembic upgrade head` as a deploy step.
+
 ## Entra app registration
 
 In the Entra admin centre, register an application and configure:

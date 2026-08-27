@@ -17,23 +17,12 @@ jobs:
   check:
     runs-on: ubuntu-latest
 
-    services:
-      db:
-        image: postgres:18
-        env:
-          POSTGRES_USER: auth
-          POSTGRES_PASSWORD: auth
-          POSTGRES_DB: auth
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U auth"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     steps:
       - uses: actions/checkout@v5
+
+      # Compose, not a services: block, so local and CI run one definition.
+      - name: Start Postgres
+        run: docker compose up -d --wait db
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
@@ -54,3 +43,25 @@ jobs:
           uv run squawk migrations.sql
       - name: Test
         run: uv run pytest -q
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker compose up -d --wait db
+      - run: docker build -t auth-skeleton:ci .
+
+      # The suite drives the app in-process, so without this the deployable
+      # artifact is never actually started.
+      - name: Smoke test the image
+        run: |
+          docker run -d --name smoke --network host \
+            -e DATABASE_URL=postgresql+psycopg://auth:auth@localhost:5432/auth \
+            -e ENTRA_TENANT_ID=11111111-1111-1111-1111-111111111111 \
+            -e ENTRA_CLIENT_ID=22222222-2222-2222-2222-222222222222 \
+            -e ENTRA_CLIENT_SECRET=ci \
+            -e REDIRECT_URI=https://app.example/auth/callback \
+            auth-skeleton:ci
+          curl -sf --retry 20 --retry-connrefused --retry-delay 1 http://127.0.0.1:57005/healthz
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:57005/auth/me)" = "401"
+          test "$(docker exec smoke id -un)" = "app"

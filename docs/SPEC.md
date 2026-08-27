@@ -160,19 +160,31 @@ TDD throughout. Three layers required:
 
 - **Unit** — token validation, JWKS cache/rotation, session lifecycle, role checks. Fixtures mint Entra-shaped JWTs with a locally generated RSA keypair.
 - **Integration** — routes against a real Postgres.
-- **E2E** — full login round trip against a **Keycloak** container (26.7.x) in
-  docker compose. Real OIDC provider, real JWKS, real crypto. A protocol mapper
-  shapes tokens to Entra's claim set (`oid`, `tid`, `roles`); the realm is
-  exported to JSON and version-controlled.
+- **E2E** — full login round trip against the local issuer in `tests/idp.py`:
+  a real HTTP server with real JWKS, real RSA signing, and Entra-shaped
+  issuers and paths. CI additionally builds the container image and smoke
+  tests it, so the deployable artifact is exercised and not just the code.
 
-**Fidelity gap, accepted:** Keycloak is not Entra. It will not catch
-Entra-specific behavior — exact `roles` claim shape, v2.0 issuer format, or
-conditional access. Mitigation is a manual smoke test against a real tenant
-before each forked service goes live, not a CI dependency.
+**Fidelity gap, accepted:** the local issuer is not Entra. It will not catch
+the exact `roles` claim shape or conditional access. Mitigation is a manual
+smoke test against a real tenant before each forked service goes live, not a
+CI dependency.
 
 ## Considered and rejected
 
 Recorded so this is not re-litigated later.
+
+- **Keycloak as the end-to-end issuer** — the plan called for it, and it does
+  not work. Keycloak derives `iss` from its hostname plus `/realms/{realm}`
+  and the claim is explicitly non-modifiable; the only override is a custom
+  Java SPI. Our validator requires `iss` to equal
+  `{authority}/{tenant}/v2.0`, and the two shapes cannot meet. Using it would
+  have meant adding an issuer-override setting that exists solely so a test
+  can pass, and that setting decouples the expected issuer from the tenant —
+  disabling the exact-match check that catches the prefix attack. No
+  off-the-shelf provider mimics Entra's URL shape, because those paths are
+  Microsoft-specific. `tests/idp.py` already issues Entra-shaped tokens with
+  real crypto.
 
 - **pgroll** (v0.16.x) — zero-downtime expand/contract via versioned views.
   Genuinely novel, but migrations are hand-authored JSON/YAML ops, which
