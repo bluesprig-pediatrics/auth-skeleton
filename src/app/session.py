@@ -18,9 +18,7 @@ def _hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def create_session(
-    session: Session, user: User, *, roles: list[str], idle: int, absolute: int
-) -> str:
+def create_session(session: Session, user: User, *, roles: list[str], absolute: int) -> str:
     """Create a session and return the token. The token is returned once and
     never stored; only its digest is persisted."""
     token = secrets.token_urlsafe(TOKEN_BYTES)

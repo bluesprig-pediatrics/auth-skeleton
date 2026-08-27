@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     def _require_relative_paths(cls, value: list[str]) -> list[str]:
         """This list is the open-redirect guard. An absolute or
         protocol-relative entry turns the guard into the vulnerability."""
+        if not value:
+            # An empty allowlist passes every other check and then makes
+            # /auth/login raise IndexError. Fail at startup instead.
+            raise ValueError("post_login_allowlist must not be empty")
         for item in value:
             if not item.startswith("/") or item.startswith("//"):
                 raise ValueError(f"post_login_allowlist entry {item!r} must be a relative path")
@@ -67,4 +71,10 @@ class Settings(BaseSettings):
     @property
     def cookie_name(self) -> str:
         return "session" if self.dev_insecure_cookies else "__Host-session"
+
+    @property
+    def login_cookie_name(self) -> str:
+        """Carries the in-flight `state`, binding the callback to the browser
+        that started the login."""
+        return "login" if self.dev_insecure_cookies else "__Host-login"
 

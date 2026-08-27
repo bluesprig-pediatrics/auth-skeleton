@@ -43,9 +43,12 @@ alembic/
 ## Flow
 
 1. `GET /auth/login` — generate `state`, `nonce`, PKCE verifier; persist as an
-   `AuthTransaction` row with a short TTL; 302 to Entra `/authorize`.
-2. `GET /auth/callback` — look up the `AuthTransaction` by `state` and consume
-   it (single-use); exchange `code` + verifier + client secret at `/token`.
+   `AuthTransaction` row with a short TTL; set `state` in a short-lived
+   `__Host-login` cookie (`SameSite=Lax`, so it survives the top-level
+   navigation back); 302 to Entra `/authorize`. Also sweeps expired rows.
+2. `GET /auth/callback` — require the `__Host-login` cookie to match the
+   `state` query parameter, then look up the `AuthTransaction` and consume it
+   (single-use); exchange `code` + verifier + client secret at `/token`.
 3. Validate ID token — JWKS signature (kid lookup), `iss` exact match on `https://login.microsoftonline.com/{tid}/v2.0`, `aud == client_id`, `exp`/`nbf`, `nonce` match.
 4. Upsert `User` keyed on `(tid, oid)`. Email/display name stored as non-authoritative cache.
 5. Create `UserSession`: 256-bit random id, **SHA-256 hashed at rest**, idle + absolute timeouts, roles snapshot from `roles` claim. Set `__Host-session` cookie: HttpOnly, Secure, SameSite=Lax.
@@ -57,7 +60,11 @@ there is no pre-authentication session to fix. Absolute expiry bounds its life.
 
 ## Security checklist (the things scaffolds get wrong)
 
-- [x] `state` verified on callback (CSRF)
+- [x] `state` verified on callback **and bound to the originating browser**
+      via a short-lived `__Host-login` cookie. Server-side storage alone proves
+      only that the state was issued, not that it was issued to this browser —
+      without the binding, an attacker can sign a victim into the attacker's
+      account.
 - [x] `nonce` bound and verified (token replay)
 - [x] PKCE used even though this is a confidential client
 - [x] JWKS refetch bounded on unknown `kid` (no unbounded fetch = DoS vector) —
@@ -127,8 +134,10 @@ keeps all authentication material off the client.
 
 - Single-use: consumed on callback, deleted whether validation succeeds or fails.
 - Short TTL (minutes, not hours), enforced on lookup.
-- No sweeper. The consuming `DELETE` also clears expired rows; at this table's
-  size that is enough. Add a scheduled cleanup if a fork ever measures a problem.
+- The consuming `DELETE` clears expired rows, and `/auth/login` sweeps both
+  this table and `user_session`. Consumption alone is not enough: it only ever
+  reaps logins that come back, and `/auth/login` is unauthenticated and writes
+  a row per request. Both `expires_at` columns are indexed.
 
 ## Key on `oid`, not `email`
 

@@ -68,7 +68,9 @@ class UserSession(SQLModel, table=True):
     created_at: datetime = Field(default_factory=_utcnow, sa_column=_timestamp_column())
     # Idle timeout is measured from here; absolute timeout from expires_at.
     last_seen_at: datetime = Field(default_factory=_utcnow, sa_column=_timestamp_column())
-    expires_at: datetime = Field(sa_column=_timestamp_column())
+    # Indexed: login sweeps expired sessions, since a user who never returns
+    # leaves a row nothing else removes.
+    expires_at: datetime = Field(sa_column=_timestamp_column(index=True))
 
 
 class AuthTransaction(SQLModel, table=True):
