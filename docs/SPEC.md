@@ -32,11 +32,10 @@ src/app/
   config.py          # pydantic-settings; tenant id, client id/secret, cookie flags
   db.py              # engine + session (sync)
   models.py          # User, UserSession, AuthTransaction
-  auth/
-    entra.py         # code exchange + ID token validation (JWKS via PyJWKClient)
-    session.py       # create / lookup / rotate / revoke
-    routes.py        # /auth/login, /auth/callback, /auth/logout, /auth/me
-    deps.py          # current_user, require_roles(...)
+  entra.py           # code exchange + ID token validation (JWKS via PyJWKClient)
+  session.py         # create / look up / revoke
+  routes.py          # /auth/login, /auth/callback, /auth/logout, /auth/me
+  deps.py            # current_user, require_roles(...)
 tests/{unit,integration,e2e}/
 alembic/
 ```
@@ -51,21 +50,24 @@ alembic/
 4. Upsert `User` keyed on `(tid, oid)`. Email/display name stored as non-authoritative cache.
 5. Create `UserSession`: 256-bit random id, **SHA-256 hashed at rest**, idle + absolute timeouts, roles snapshot from `roles` claim. Set `__Host-session` cookie: HttpOnly, Secure, SameSite=Lax.
 6. `current_user` dependency resolves cookie -> session -> user; `require_roles` checks the snapshot.
-7. `POST /auth/logout` — delete session row, clear cookie, optional front-channel redirect to Entra logout.
+7. `POST /auth/logout` — delete session row, clear cookie.
+
+No session rotation: a session is created at login and revoked at logout, and
+there is no pre-authentication session to fix. Absolute expiry bounds its life.
 
 ## Security checklist (the things scaffolds get wrong)
 
-- [ ] `state` verified on callback (CSRF)
-- [ ] `nonce` bound and verified (token replay)
-- [ ] PKCE used even though this is a confidential client
-- [ ] JWKS refetch bounded on unknown `kid` (no unbounded fetch = DoS vector) —
+- [x] `state` verified on callback (CSRF)
+- [x] `nonce` bound and verified (token replay)
+- [x] PKCE used even though this is a confidential client
+- [x] JWKS refetch bounded on unknown `kid` (no unbounded fetch = DoS vector) —
       **not** given by `PyJWKClient` alone; throttled in `entra.py` and asserted
       with a fetch counter against a real JWKS server
-- [ ] Issuer compared by exact string, never prefix match
-- [ ] Session id hashed at rest — DB leak must not equal session takeover
-- [ ] Both idle *and* absolute session timeouts
-- [ ] Post-login `next` param validated against an allowlist (open redirect)
-- [ ] Tokens never logged
+- [x] Issuer compared by exact string, never prefix match
+- [x] Session id hashed at rest — DB leak must not equal session takeover
+- [x] Both idle *and* absolute session timeouts
+- [x] Post-login `next` param validated against an allowlist (open redirect)
+- [x] Tokens never logged
 
 ## Migrations
 
