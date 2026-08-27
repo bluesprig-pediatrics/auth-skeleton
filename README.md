@@ -100,6 +100,25 @@ Roles come from **app roles**, not group claims. Groups hit an overage claim
 past 200 memberships, where the token omits them and you have to call Microsoft
 Graph to find out what they were.
 
+### If `roles` comes back empty
+
+Defining a role and assigning it are two separate blades, and the failure mode
+between them is silent.
+
+1. **App registrations -> App roles** defines the role. *Allowed member types*
+   must be **Users/Groups** — set to *Applications*, it cannot be assigned to a
+   person, and it will not appear in the picker in step 2.
+2. **Enterprise applications -> Users and groups** assigns it. If the role is
+   not selectable here, Azure assigns **Default Access** instead, which emits
+   no `roles` claim at all. Check the Role column actually reads your role name.
+
+An unassigned user gets no `roles` claim — not an empty array, the claim is
+absent entirely. Nothing in the portal warns you, and the app cannot tell the
+difference between "no roles" and "misconfigured".
+
+Roles are snapshotted into the session at sign-in, so after fixing an
+assignment you must sign in again; refreshing keeps the old snapshot.
+
 ## Configuration
 
 Everything is environment variables, read once at startup. The listening
@@ -148,8 +167,10 @@ host that is not localhost. Startup refuses it when `ENV=production`.
    `uv run alembic revision --autogenerate -m "..."`. **Read what it generates** —
    autogenerate misses server defaults, type changes, and constraint renames.
 5. Add your routes, protecting them with `CurrentUser` or `require_roles`.
-6. Before going live, sign in once against your real tenant. The test suite uses
-   a local issuer, which is real OIDC but not real Entra.
+6. Before going live, sign in once against your real tenant and confirm
+   `/auth/me` returns the roles you expect. The test suite uses a local issuer,
+   which is real OIDC but not real Entra — and `roles` is the claim most likely
+   to differ.
 
 ## Things worth knowing before you change them
 
