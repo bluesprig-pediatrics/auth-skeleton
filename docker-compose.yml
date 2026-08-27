@@ -11,3 +11,23 @@ services:
       test: ["CMD-SHELL", "pg_isready -U auth"]
       interval: 5s
       retries: 10
+
+  # Not started by `docker compose up`: `--profile app up` runs it. The test
+  # suite drives the app in-process, so this exists for exercising the image.
+  app:
+    profiles: ["app"]
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://auth:auth@db:5432/auth
+      ENV: ${ENV:-dev}
+      ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
+      ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+      ENTRA_CLIENT_SECRET: ${ENTRA_CLIENT_SECRET:-}
+      REDIRECT_URI: ${REDIRECT_URI:-}
+      POST_LOGIN_ALLOWLIST: ${POST_LOGIN_ALLOWLIST:-/}
+      DEV_INSECURE_COOKIES: ${DEV_INSECURE_COOKIES:-false}
+    ports:
+      - "57005:57005"

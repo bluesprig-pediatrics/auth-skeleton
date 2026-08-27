@@ -77,13 +77,16 @@ both enforced.
   `/auth/me` returns exactly its declared fields.
 - Gates **checklist items 1, 6, 7, 8**.
 
-## PR 5 — End-to-end and README
+## PR 5 — README and container image  *(done)*
 
-Keycloak 26.7.x in compose, realm JSON version-controlled, protocol mappers
-emitting `oid`, `tid`, `roles`. Full login round trip. README covering what the
-scaffold is, how to fork it, and the Entra app registration it expects.
+README covering what the scaffold is, how to fork it, and the Entra app
+registration it expects.
 
-- e2e green from a cold `docker compose up`.
+Dockerfile, because every fork would otherwise write the same one, and because
+without it the deployable artifact is never exercised. CI builds the image and
+smoke tests it.
+
+Keycloak was dropped; see "Considered and rejected" in SPEC.md for why.
 
 ## Gates
 
