@@ -3,7 +3,7 @@
 
 from typing import Annotated, Literal, Self
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -16,10 +16,13 @@ class Settings(BaseSettings):
     # Overridable for sovereign clouds (US Gov, China) and for tests, which
     # point it at a local issuer.
     entra_authority: str = "https://login.microsoftonline.com"
-    entra_tenant_id: str
-    entra_client_id: str
-    entra_client_secret: str
-    redirect_uri: str
+    # min_length: an empty string validates as a str, and the container then
+    # starts healthy while every login points at
+    # https://login.microsoftonline.com//v2.0. Fail at startup instead.
+    entra_tenant_id: str = Field(min_length=1)
+    entra_client_id: str = Field(min_length=1)
+    entra_client_secret: str = Field(min_length=1)
+    redirect_uri: str = Field(min_length=1)
 
     # NoDecode: without it the settings source JSON-decodes this before any
     # validator runs, and a comma-separated value dies as a decode error.
