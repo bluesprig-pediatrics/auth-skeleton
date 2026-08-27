@@ -25,16 +25,24 @@ GET  /healthz
 Protecting your own routes:
 
 ```python
+from fastapi import APIRouter, Depends
+
 from app.deps import CurrentUser, require_roles
 
-@app.get("/reports")
-def reports(user: CurrentUser) -> ...:
-    return ...
+router = APIRouter()
 
-@app.get("/admin", dependencies=[Depends(require_roles("Admin"))])
-def admin() -> ...:
-    return ...
+
+@router.get("/reports")
+def reports(user: CurrentUser) -> dict[str, str]:
+    return {"for": user.oid}
+
+
+@router.get("/admin", dependencies=[Depends(require_roles("Admin"))])
+def admin() -> dict[str, str]:
+    return {"ok": "yes"}
 ```
+
+Register it in `create_app()` with `app.include_router(router)`.
 
 `require_roles` reads the Entra **app roles** captured at login. Roles are a
 snapshot, not a live directory lookup, so a role change takes effect at the
@@ -46,7 +54,7 @@ Requires [uv](https://docs.astral.sh/uv/) and Docker.
 
 ```bash
 cp .env.example .env      # fill in the Entra values
-docker compose up -d db
+docker compose up -d --wait db   # --wait, or migrations race the database
 uv sync
 uv run alembic upgrade head
 uv run uvicorn --app-dir src --factory app.main:create_app --port 57005
@@ -82,13 +90,13 @@ Graph to find out what they were.
 
 ## Configuration
 
-Everything is environment variables, read once at startup.
+Everything is environment variables, read once at startup. The listening
+port is not among them — it comes from `--port` on the uvicorn command.
 
 | Variable | Default | Notes |
 |---|---|---|
 | `ENV` | `production` | `dev`, `test`, or `production` |
 | `DATABASE_URL` | — | `postgresql+psycopg://...` |
-| `PORT` | `57005` | |
 | `ENTRA_TENANT_ID` | — | Directory (tenant) ID |
 | `ENTRA_CLIENT_ID` | — | Application (client) ID |
 | `ENTRA_CLIENT_SECRET` | — | |
@@ -101,18 +109,23 @@ Everything is environment variables, read once at startup.
 | `DEV_INSECURE_COOKIES` | `false` | See below. Refused when `ENV=production` |
 
 `POST_LOGIN_ALLOWLIST` is the open-redirect guard: a `?next=` outside it is
-rejected rather than quietly redirected. Entries must be relative paths.
+rejected rather than quietly redirected. Entries must be relative paths, and
+**the first entry is where login lands when no `?next=` is given** — so order
+matters, and putting `/admin` first makes it everyone's landing page.
 
 ### `DEV_INSECURE_COOKIES`
 
 Session cookies use the `__Host-` prefix, which requires `Secure`, which
-requires HTTPS. Browsers make an exception for `http://localhost`, so normal
-local development works untouched.
+requires HTTPS. Chrome (89+) and Firefox (75+) make an exception for
+`http://localhost`, so local development works untouched in those.
 
-On any *other* plain-HTTP host the browser silently discards the cookie: sign-in
-appears to succeed, the redirect happens, and the next request is anonymous,
-with nothing in the logs. Set `DEV_INSECURE_COOKIES=true` there. Startup refuses
-it when `ENV=production`.
+**Safari does not.** WebKit declines to store a `Secure` cookie over plain HTTP
+even on localhost, so Safari needs the flag below for local development.
+
+The failure is silent: the browser discards the cookie, sign-in appears to
+succeed, the redirect happens, and the next request is anonymous with nothing
+in the logs. Set `DEV_INSECURE_COOKIES=true` for Safari, and for any plain-HTTP
+host that is not localhost. Startup refuses it when `ENV=production`.
 
 ## Forking checklist
 
