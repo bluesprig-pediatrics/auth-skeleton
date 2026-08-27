@@ -36,7 +36,7 @@ src/app/
   session.py         # create / look up / revoke
   routes.py          # /auth/login, /auth/callback, /auth/logout, /auth/me
   deps.py            # current_user, require_roles(...)
-tests/{unit,integration,e2e}/
+tests/{unit,integration}/
 alembic/
 ```
 
@@ -160,13 +160,19 @@ TDD throughout. Three layers required:
 
 - **Unit** — token validation, JWKS cache/rotation, session lifecycle, role checks. Fixtures mint Entra-shaped JWTs with a locally generated RSA keypair.
 - **Integration** — routes against a real Postgres.
-- **E2E** — full login round trip against the local issuer in `tests/idp.py`:
-  a real HTTP server with real JWKS, real RSA signing, and Entra-shaped
-  issuers and paths. CI additionally builds the container image and smoke
-  tests it, so the deployable artifact is exercised and not just the code.
+- **Full login round trip** — against the local issuer in `tests/idp.py`: a
+  real HTTP server with real JWKS, real RSA signing, and Entra-shaped issuers
+  and paths. This runs **in process** against a `TestClient`, so it is the
+  integration layer, not a separate out-of-process tier. There is no
+  `tests/e2e/`.
+- **Container image** — CI builds it, migrates from inside it, and smoke tests
+  the running image, so the deployable artifact is exercised and not just the
+  code. No sign-in runs through the container.
 
 **Fidelity gap, accepted:** the local issuer is not Entra. It will not catch
-the exact `roles` claim shape or conditional access. Mitigation is a manual
+the exact `roles` claim shape or conditional access. And because the round
+trip runs in process, nothing exercises a real sign-in through the container,
+so the image's outbound TLS and JWKS path are untested. Mitigation is a manual
 smoke test against a real tenant before each forked service goes live, not a
 CI dependency.
 

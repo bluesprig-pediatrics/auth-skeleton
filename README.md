@@ -75,7 +75,8 @@ but a local host. It reads `TEST_DATABASE_URL`, never `DATABASE_URL`.
 
 ```bash
 docker build -t my-service .
-docker compose --profile app up      # app + database together
+docker compose --profile app run --rm app alembic upgrade head
+docker compose --profile app up
 ```
 
 Runs as a non-root user on port 57005. **Migrations are not run on boot** — a
