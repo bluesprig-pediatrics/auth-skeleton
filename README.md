@@ -10,8 +10,6 @@ Sign-in is OIDC authorization code + PKCE against Entra, using the
 the backend runs the flow and the browser only ever holds an opaque session
 cookie. No token reaches JavaScript. There are no passwords to store.
 
-See [docs/SPEC.md](docs/SPEC.md) for the design and the reasoning behind it.
-
 ## What you get
 
 ```
@@ -157,6 +155,28 @@ The failure is silent: the browser discards the cookie, sign-in appears to
 succeed, the redirect happens, and the next request is anonymous with nothing
 in the logs. Set `DEV_INSECURE_COOKIES=true` for Safari, and for any plain-HTTP
 host that is not localhost. Startup refuses it when `ENV=production`.
+
+## Security checklist
+
+- [x] `state` verified on callback **and bound to the originating browser**
+      via a short-lived `__Host-login` cookie. Server-side storage alone proves
+      only that the state was issued, not that it was issued to this browser —
+      without the binding, an attacker can sign a victim into the attacker's
+      account.
+- [x] `nonce` bound and verified (token replay)
+- [x] PKCE used even though this is a confidential client
+- [x] JWKS refetch bounded on unknown `kid` (no unbounded fetch = DoS vector) —
+      **not** given by `PyJWKClient` alone; throttled in `entra.py` and asserted
+      with a fetch counter against a real JWKS server
+- [x] Issuer compared by exact string, never prefix match
+- [x] Session id hashed at rest — DB leak must not equal session takeover
+- [x] Both idle *and* absolute session timeouts
+- [x] Post-login `next` param validated against an allowlist (open redirect)
+- [x] Tokens never logged
+
+Each line is gated by a named test. If you change the auth flow, keep them
+gated or delete the line honestly — a ticked box that is not enforced is worse
+than no box, because it buys confidence nothing is earning.
 
 ## Forking checklist
 

@@ -1,5 +1,5 @@
 # ABOUTME: Authentication routes: login, callback, logout, and the current user.
-# ABOUTME: Gates SPEC checklist items 1 and 8.
+# ABOUTME: Gates the README security checklist items 1 and 8.
 
 import secrets
 import uuid

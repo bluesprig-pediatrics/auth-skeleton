@@ -1,5 +1,5 @@
 # ABOUTME: Logging filter that strips credentials from every log record.
-# ABOUTME: Gates the "tokens never logged" item in the SPEC security checklist.
+# ABOUTME: Gates the "tokens never logged" item in the README security checklist.
 
 import logging
 import re

@@ -1,5 +1,5 @@
 # ABOUTME: End-to-end route tests against a real database and a real OIDC issuer.
-# ABOUTME: Gates SPEC checklist items 1 and 8.
+# ABOUTME: Gates the README security checklist items 1 and 8.
 
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse

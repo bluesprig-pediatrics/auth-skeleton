@@ -1,5 +1,5 @@
 # ABOUTME: Tests for Entra endpoint templating, PKCE, code exchange, and ID token validation.
-# ABOUTME: The negative cases are the deliverable; they gate SPEC checklist items 2-5.
+# ABOUTME: The negative cases are the deliverable; they gate README security checklist items 2-5.
 
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse

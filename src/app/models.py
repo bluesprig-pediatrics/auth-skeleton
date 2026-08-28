@@ -1,5 +1,5 @@
 # ABOUTME: Database tables for users, sessions, and in-flight auth transactions.
-# ABOUTME: No table here is ever serialized to a client; see SPEC model layer rules.
+# ABOUTME: No table here is ever serialized to a client; routes declare explicit schemas.
 
 import uuid
 from datetime import UTC, datetime

@@ -1,5 +1,5 @@
 # ABOUTME: Tests that credentials never survive into log output.
-# ABOUTME: Gates the "tokens never logged" item in the SPEC security checklist.
+# ABOUTME: Gates the "tokens never logged" item in the README security checklist.
 
 import io
 import logging
