@@ -99,7 +99,7 @@ def test_roles_round_trip_as_a_list(session: Session):
 
 def test_consume_sweeps_other_expired_transactions(session: Session):
     """A login the user abandons leaves a row nothing else would ever remove;
-    SPEC claims the consuming delete clears them, so it must."""
+    the consuming delete must clear them, or abandoned logins leak rows forever."""
     make_transaction(session, state="abandoned", ttl_seconds=-1)
     make_transaction(session, state="live")
     AuthTransaction.consume(session, "live")

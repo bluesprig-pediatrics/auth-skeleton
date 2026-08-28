@@ -1,5 +1,5 @@
 # ABOUTME: Browser session lifecycle: create, look up, revoke.
-# ABOUTME: Tokens are stored only as hashes; gates SPEC checklist items 6 and 7.
+# ABOUTME: Tokens are stored only as hashes; gates the README security checklist items 6 and 7.
 
 import hashlib
 import secrets

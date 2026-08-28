@@ -1,5 +1,5 @@
 # ABOUTME: Tests for session creation, lookup, expiry, and revocation.
-# ABOUTME: Gates SPEC checklist items 6 and 7.
+# ABOUTME: Gates the README security checklist items 6 and 7.
 
 from datetime import UTC, datetime, timedelta
 
