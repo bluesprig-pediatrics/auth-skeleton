@@ -1,7 +1,7 @@
 # auth-skeleton — Specification
 
-A reusable FastAPI auth scaffold. Forked per service, not installed as a 
-package.
+Why this scaffold is built the way it is. [README](../README.md) covers how to
+run and fork it.
 
 ## Decisions
 
@@ -23,22 +23,6 @@ package.
 | JWKS handling | `jwt.PyJWKClient`, with our own refresh throttle | PyJWT ships fetch, `kid` lookup, and caching. It does **not** bound refetching: measured, an unknown `kid` triggers a fetch every time, so a stream of forged tokens is a stream of outbound requests. We resolve the key against the cached set and refresh at most once per interval. |
 | Authority | `entra_authority` setting, default `login.microsoftonline.com` | Sovereign clouds (US Gov, China) use different hosts, and tests point it at a local issuer. |
 | Endpoint discovery | **Skipped.** URLs derived from tenant id | Entra's v2.0 endpoints are stable and templated on `{tid}`. Fetching the discovery document adds a network call, a cache, and failure modes to learn three known strings. |
-
-## Layout
-
-```
-src/app/
-  main.py            # app factory
-  config.py          # pydantic-settings; tenant id, client id/secret, cookie flags
-  db.py              # engine + session (sync)
-  models.py          # User, UserSession, AuthTransaction
-  entra.py           # code exchange + ID token validation (JWKS via PyJWKClient)
-  session.py         # create / look up / revoke
-  routes.py          # /auth/login, /auth/callback, /auth/logout, /auth/me
-  deps.py            # current_user, require_roles(...)
-tests/{unit,integration}/
-alembic/
-```
 
 ## Flow
 
@@ -142,17 +126,6 @@ keeps all authentication material off the client.
 ## Key on `oid`, not `email`
 
 Entra `sub` is pairwise per-application; `oid` is the stable user id within the tenant. Emails are reassignable. Primary key is `(tid, oid)`.
-
-## Dependencies
-
-`fastapi`, `uvicorn`, `sqlmodel`, `pyjwt[crypto]`, `httpx`, `psycopg[binary]`, `alembic`, `pydantic-settings`
-
-(`sqlmodel` brings `sqlalchemy` and `pydantic` transitively. Sync `Session`, not `AsyncSession`.)
-Dev: `pytest`, `ruff`, `mypy`, `squawk-cli`
-
-Note: the PyPI package `squawk` is an unrelated project. The linter is `squawk-cli`.
-
-Managed with `uv`.
 
 ## Testing
 
