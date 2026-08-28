@@ -15,7 +15,7 @@ cookie. No token reaches JavaScript. There are no passwords to store.
 ```
 GET  /auth/login    -> redirects to Entra; accepts ?next= from an allowlist
 GET  /auth/callback -> completes sign-in, sets the session cookie
-POST /auth/logout   -> revokes the session
+POST /auth/logout   -> revokes the local session (see below)
 GET  /auth/me       -> the current user
 GET  /healthz
 ```
@@ -41,6 +41,11 @@ def admin() -> dict[str, str]:
 ```
 
 Register it in `create_app()` with `app.include_router(router)`.
+
+Logout revokes the local session only; it does not sign the user out of Entra.
+The next `/auth/login` re-authenticates silently through SSO. That is usually
+right on managed devices and usually wrong on shared workstations — add the
+Entra front-channel logout redirect if you need the second.
 
 `require_roles` reads the Entra **app roles** captured at login. Roles are a
 snapshot, not a live directory lookup, so a role change takes effect at the
@@ -88,7 +93,7 @@ In the Entra admin centre, register an application and configure:
 | Setting | Value |
 |---|---|
 | Supported account types | Single tenant |
-| Redirect URI | Web -> `https://your-host/auth/callback` |
+| Redirect URI | Web -> `https://your-host/auth/callback`, plus `http://localhost:57005/auth/callback` for local work |
 | Client secret | Create one; it goes in `ENTRA_CLIENT_SECRET` |
 | App roles | Define the roles your service checks, then assign users |
 
@@ -114,8 +119,8 @@ An unassigned user gets no `roles` claim — not an empty array, the claim is
 absent entirely. Nothing in the portal warns you, and the app cannot tell the
 difference between "no roles" and "misconfigured".
 
-Roles are snapshotted into the session at sign-in, so after fixing an
-assignment you must sign in again; refreshing keeps the old snapshot.
+After fixing an assignment you must sign in again; refreshing keeps the old
+snapshot.
 
 ## Configuration
 
@@ -156,6 +161,38 @@ succeed, the redirect happens, and the next request is anonymous with nothing
 in the logs. Set `DEV_INSECURE_COOKIES=true` for Safari, and for any plain-HTTP
 host that is not localhost. Startup refuses it when `ENV=production`.
 
+## Forking checklist
+
+1. Rename the project in `pyproject.toml`; the package stays `app`.
+2. Point `.env` at your own Entra app registration.
+3. Set `POST_LOGIN_ALLOWLIST` to the paths your UI actually lands on.
+4. Add your tables to `src/app/models.py`, then
+   `uv run alembic revision --autogenerate -m "..."`. **Read what it generates** —
+   autogenerate misses server defaults, type changes, and constraint renames.
+5. Add your routes, protecting them with `CurrentUser` or `require_roles`.
+6. Before going live, sign in once against your real tenant and confirm
+   `/auth/me` returns the roles you expect. The test suite uses a local issuer,
+   which is real OIDC but not real Entra — and `roles` is the claim most likely
+   to differ.
+
+## Things worth knowing before you change them
+
+**Users are keyed on `(tid, oid)`, not email.** Entra's `sub` is per-application
+and email addresses get reassigned; the object ID is the stable identifier.
+
+**Log redaction lives on the handler.** `app/logging.py` strips credentials from
+messages, arguments, and tracebacks, including uvicorn's access log where query
+strings carry the authorization code. **If you add a log handler, attach the
+filter** — otherwise it logs what the others redact.
+
+**`EntraClient` must live for the process.** It holds the JWKS cache and the
+refresh throttle. Building one per request restores the unbounded refetch those
+exist to prevent. It is created once in the app factory.
+
+**Migrations set `statement_timeout` and `lock_timeout`.** The revision template
+adds them so a migration fails fast instead of blocking every reader. CI lints
+rendered migration SQL with [Squawk](https://squawkhq.com/).
+
 ## Security checklist
 
 - [x] `state` verified on callback **and bound to the originating browser**
@@ -177,39 +214,3 @@ host that is not localhost. Startup refuses it when `ENV=production`.
 Each line is gated by a named test. If you change the auth flow, keep them
 gated or delete the line honestly — a ticked box that is not enforced is worse
 than no box, because it buys confidence nothing is earning.
-
-## Forking checklist
-
-1. Rename the project in `pyproject.toml`; the package stays `app`.
-2. Point `.env` at your own Entra app registration.
-3. Set `POST_LOGIN_ALLOWLIST` to the paths your UI actually lands on.
-4. Add your tables to `src/app/models.py`, then
-   `uv run alembic revision --autogenerate -m "..."`. **Read what it generates** —
-   autogenerate misses server defaults, type changes, and constraint renames.
-5. Add your routes, protecting them with `CurrentUser` or `require_roles`.
-6. Before going live, sign in once against your real tenant and confirm
-   `/auth/me` returns the roles you expect. The test suite uses a local issuer,
-   which is real OIDC but not real Entra — and `roles` is the claim most likely
-   to differ.
-
-## Things worth knowing before you change them
-
-**Users are keyed on `(tid, oid)`, not email.** Entra's `sub` is per-application
-and email addresses get reassigned; the object ID is the stable identifier.
-
-**Session tokens are stored as SHA-256 hashes.** A database leak should not be
-enough to impersonate anyone. `create_session` returns the raw token exactly
-once.
-
-**Log redaction is a filter, not a convention.** `app/logging.py` strips
-credentials from messages, arguments, and tracebacks, including uvicorn's access
-log, where query strings carry the authorization code. If you add a handler, it
-needs the filter.
-
-**`EntraClient` must live for the process.** It holds the JWKS cache and the
-refresh throttle. Building one per request restores the unbounded refetch those
-exist to prevent. It is created once in the app factory.
-
-**Migrations set `statement_timeout` and `lock_timeout`.** The revision template
-adds them so a migration fails fast instead of blocking every reader. CI lints
-rendered migration SQL with [Squawk](https://squawkhq.com/).
